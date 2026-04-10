@@ -29,27 +29,27 @@ $QUIET = $false
 function Log-Message { param([string]$Message) if (-not $QUIET) { Write-Host $Message } }
 
 # ─── Parse flags ──────────────────────────────────────────────
-$HOST = "claude"
+$TargetHost = "claude"
 $LOCAL_INSTALL = $false
 $SKILL_PREFIX = $true
 $SKILL_PREFIX_FLAG = $false
 
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch ($args[$i]) {
-        "--host"       { $i++; $HOST = $args[$i] }
+        "--host"       { $i++; $TargetHost = $args[$i] }
         "--local"      { $LOCAL_INSTALL = $true }
         "--prefix"     { $SKILL_PREFIX = $true;  $SKILL_PREFIX_FLAG = $true }
         "--no-prefix"  { $SKILL_PREFIX = $false; $SKILL_PREFIX_FLAG = $true }
         { $_ -in "-q","--quiet" } { $QUIET = $true }
         default {
-            if ($args[$i] -match '^--host=(.+)$') { $HOST = $Matches[1] }
+            if ($args[$i] -match '^--host=(.+)$') { $TargetHost = $Matches[1] }
         }
     }
 }
 
 # Validate host
 $validHosts = @("claude","codex","kiro","factory","auto")
-if ($HOST -eq "openclaw") {
+if ($TargetHost -eq "openclaw") {
     Write-Host @"
 
 OpenClaw integration uses a different model — OpenClaw spawns Claude Code
@@ -64,8 +64,8 @@ To integrate gstack with OpenClaw:
 "@
     exit 0
 }
-if ($HOST -notin $validHosts) {
-    Write-Error "Unknown --host value: $HOST (expected claude, codex, kiro, factory, openclaw, or auto)"
+if ($TargetHost -notin $validHosts) {
+    Write-Error "Unknown --host value: $TargetHost (expected claude, codex, kiro, factory, openclaw, or auto)"
     exit 1
 }
 
@@ -110,10 +110,10 @@ if (-not $SKILL_PREFIX_FLAG) {
 # --local (deprecated)
 if ($LOCAL_INSTALL) {
     Write-Warning "--local is deprecated. Use global install + --team instead."
-    if ($HOST -eq "codex") { Write-Error "--local is only supported for Claude Code (not Codex)."; exit 1 }
+    if ($TargetHost -eq "codex") { Write-Error "--local is only supported for Claude Code (not Codex)."; exit 1 }
     $INSTALL_SKILLS_DIR = Join-Path (Get-Location).Path ".claude\skills"
     New-Item -ItemType Directory -Force -Path $INSTALL_SKILLS_DIR | Out-Null
-    $HOST = "claude"
+    $TargetHost = "claude"
 }
 
 # Auto-detect hosts
@@ -122,7 +122,7 @@ $INSTALL_CODEX   = $false
 $INSTALL_KIRO    = $false
 $INSTALL_FACTORY = $false
 
-if ($HOST -eq "auto") {
+if ($TargetHost -eq "auto") {
     if (Get-Command claude   -ErrorAction SilentlyContinue) { $INSTALL_CLAUDE  = $true }
     if (Get-Command codex    -ErrorAction SilentlyContinue) { $INSTALL_CODEX   = $true }
     if (Get-Command kiro-cli -ErrorAction SilentlyContinue) { $INSTALL_KIRO    = $true }
@@ -130,10 +130,10 @@ if ($HOST -eq "auto") {
     if (-not ($INSTALL_CLAUDE -or $INSTALL_CODEX -or $INSTALL_KIRO -or $INSTALL_FACTORY)) {
         $INSTALL_CLAUDE = $true
     }
-} elseif ($HOST -eq "claude")  { $INSTALL_CLAUDE  = $true }
-  elseif ($HOST -eq "codex")   { $INSTALL_CODEX   = $true }
-  elseif ($HOST -eq "kiro")    { $INSTALL_KIRO    = $true }
-  elseif ($HOST -eq "factory") { $INSTALL_FACTORY = $true }
+} elseif ($TargetHost -eq "claude")  { $INSTALL_CLAUDE  = $true }
+  elseif ($TargetHost -eq "codex")   { $INSTALL_CODEX   = $true }
+  elseif ($TargetHost -eq "kiro")    { $INSTALL_KIRO    = $true }
+  elseif ($TargetHost -eq "factory") { $INSTALL_FACTORY = $true }
 
 # ─── Playwright browser check ────────────────────────────────
 function Test-PlaywrightBrowser {
