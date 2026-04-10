@@ -33,8 +33,6 @@ $HOST = "claude"
 $LOCAL_INSTALL = $false
 $SKILL_PREFIX = $true
 $SKILL_PREFIX_FLAG = $false
-$TEAM_MODE = $false
-$NO_TEAM_MODE = $false
 
 for ($i = 0; $i -lt $args.Count; $i++) {
     switch ($args[$i]) {
@@ -42,8 +40,6 @@ for ($i = 0; $i -lt $args.Count; $i++) {
         "--local"      { $LOCAL_INSTALL = $true }
         "--prefix"     { $SKILL_PREFIX = $true;  $SKILL_PREFIX_FLAG = $true }
         "--no-prefix"  { $SKILL_PREFIX = $false; $SKILL_PREFIX_FLAG = $true }
-        "--team"       { $TEAM_MODE = $true }
-        "--no-team"    { $NO_TEAM_MODE = $true }
         { $_ -in "-q","--quiet" } { $QUIET = $true }
         default {
             if ($args[$i] -match '^--host=(.+)$') { $HOST = $Matches[1] }
@@ -567,69 +563,10 @@ if ($INSTALL_CODEX) {
     New-AgentsSidecar -RepoRoot $SOURCE_GSTACK_DIR
 }
 
-# ─── 8. Run pending version migrations ────────────────────────
-$MIGRATIONS_DIR = Join-Path $SOURCE_GSTACK_DIR "gstack-upgrade\migrations"
-$versionFile = Join-Path $SOURCE_GSTACK_DIR "VERSION"
-$CURRENT_VERSION = if (Test-Path $versionFile) { (Get-Content $versionFile -Raw).Trim() } else { "unknown" }
-$lastSetupVersionFile = Join-Path $HOME ".gstack\.last-setup-version"
-$LAST_SETUP_VERSION = if (Test-Path $lastSetupVersionFile) { (Get-Content $lastSetupVersionFile -Raw).Trim() } else { "0.0.0.0" }
-
-if ((Test-Path $MIGRATIONS_DIR) -and $CURRENT_VERSION -ne "unknown" -and $LAST_SETUP_VERSION -ne $CURRENT_VERSION) {
-    if (Test-Path $lastSetupVersionFile) {
-        $migrations = Get-ChildItem -Path $MIGRATIONS_DIR -Filter "v*.sh" -File -ErrorAction SilentlyContinue | Sort-Object Name
-        foreach ($migration in $migrations) {
-            $mVer = $migration.BaseName -replace '^v', ''
-            # Simple version comparison — run if newer than last setup
-            if ($mVer -gt $LAST_SETUP_VERSION -and $mVer -le $CURRENT_VERSION) {
-                Write-Host "  running migration $mVer..."
-                try { bash $migration.FullName } catch { Write-Host "  warning: migration $mVer had errors (non-fatal)" }
-            }
-        }
-    }
-}
+# ─── 8. First-time welcome ─────────────────────────────────────
 New-Item -ItemType Directory -Force -Path (Join-Path $HOME ".gstack") | Out-Null
-if ($CURRENT_VERSION -ne "unknown") {
-    $CURRENT_VERSION | Out-File -FilePath $lastSetupVersionFile -Encoding ascii -NoNewline
-}
-
-# ─── 9. First-time welcome ────────────────────────────────────
 $welcomeFile = Join-Path $HOME ".gstack\.welcome-seen"
 if (-not (Test-Path $welcomeFile)) {
-    Log-Message "  Welcome! Run /gstack-upgrade anytime to stay current."
+    Log-Message "  Welcome to gstack-kor!"
     New-Item -ItemType File -Force -Path $welcomeFile | Out-Null
-}
-$latestVersionTmp = Join-Path $env:TEMP "gstack-latest-version"
-if (Test-Path $latestVersionTmp) { Remove-Item $latestVersionTmp -Force -ErrorAction SilentlyContinue }
-
-# ─── 10. Team mode ────────────────────────────────────────────
-if ($TEAM_MODE) {
-    try { & bun run $GSTACK_CONFIG set auto_upgrade true 2>$null } catch {}
-    try { & bun run $GSTACK_CONFIG set team_mode true 2>$null } catch {}
-
-    $settingsHook = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-settings-hook"
-    $hookCmd = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-session-update"
-    if (Test-Path $settingsHook) {
-        try { & bun run $settingsHook add $hookCmd 2>$null } catch {}
-    }
-
-    Log-Message ""
-    Log-Message "Team mode enabled: gstack will auto-update at the start of each Claude Code session."
-    Log-Message "  Hook: $hookCmd"
-    Log-Message "  To disable: .\setup.ps1 --no-team"
-    Log-Message ""
-    Log-Message "Bootstrap your repo:"
-    Log-Message "  cd <your-repo>; & bun run $(Join-Path $SOURCE_GSTACK_DIR 'bin\gstack-team-init') required"
-}
-
-if ($NO_TEAM_MODE) {
-    try { & bun run $GSTACK_CONFIG set auto_upgrade false 2>$null } catch {}
-    try { & bun run $GSTACK_CONFIG set team_mode false 2>$null } catch {}
-
-    $settingsHook = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-settings-hook"
-    $hookCmd = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-session-update"
-    if (Test-Path $settingsHook) {
-        try { & bun run $settingsHook remove $hookCmd 2>$null } catch {}
-    }
-
-    Log-Message "Team mode disabled: auto-update hook removed."
 }
