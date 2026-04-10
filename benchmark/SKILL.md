@@ -19,6 +19,16 @@ allowed-tools:
 <!-- AUTO-GENERATED from SKILL.md.tmpl — do not edit directly -->
 <!-- Regenerate: bun run gen:skill-docs -->
 
+## 언어 지시 (Language Directive)
+
+**모든 응답은 반드시 한국어(Korean)로 작성하세요.**
+
+- 사용자와의 대화, 설명, 질문, 상태 업데이트 등 모든 텍스트 출력은 한국어로 합니다.
+- 코드, 명령어, 파일 경로, 변수명 등 기술적 용어는 영어 원문 그대로 유지합니다.
+- 커밋 메시지, PR 제목/본문, CHANGELOG 등 git/GitHub 산출물도 한국어로 작성합니다.
+- AskUserQuestion의 질문도 한국어로 합니다.
+- 단, 코드 주석은 영어로 유지합니다 (국제 협업 호환성).
+
 ## Preamble (run first)
 
 ```bash

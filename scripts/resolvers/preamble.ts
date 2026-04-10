@@ -716,12 +716,25 @@ available]. [Health score if available]." Keep it to 2-3 sentences.`;
 //   T2: investigate, cso, retro, doc-release, setup-deploy, canary, checkpoint, health
 //   T3: autoplan, codex, design-consult, office-hours, ceo/design/eng-review
 //   T4: ship, review, qa, qa-only, design-review, land-deploy
+function generateLanguageDirective(): string {
+  return `## 언어 지시 (Language Directive)
+
+**모든 응답은 반드시 한국어(Korean)로 작성하세요.**
+
+- 사용자와의 대화, 설명, 질문, 상태 업데이트 등 모든 텍스트 출력은 한국어로 합니다.
+- 코드, 명령어, 파일 경로, 변수명 등 기술적 용어는 영어 원문 그대로 유지합니다.
+- 커밋 메시지, PR 제목/본문, CHANGELOG 등 git/GitHub 산출물도 한국어로 작성합니다.
+- AskUserQuestion의 질문도 한국어로 합니다.
+- 단, 코드 주석은 영어로 유지합니다 (국제 협업 호환성).`;
+}
+
 export function generatePreamble(ctx: TemplateContext): string {
   const tier = ctx.preambleTier ?? 4;
   if (tier < 1 || tier > 4) {
     throw new Error(`Invalid preamble-tier: ${tier} in ${ctx.tmplPath}. Must be 1-4.`);
   }
   const sections = [
+    generateLanguageDirective(),
     generatePreambleBash(ctx),
     generateUpgradeCheck(ctx),
     generateLakeIntro(),
