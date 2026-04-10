@@ -28,6 +28,33 @@ $FACTORY_GSTACK     = Join-Path $FACTORY_SKILLS "gstack"
 $QUIET = $false
 function Log-Message { param([string]$Message) if (-not $QUIET) { Write-Host $Message } }
 
+# ─── Config helper (PowerShell port of bin/gstack-config) ────
+$GSTACK_STATE_DIR = Join-Path $HOME ".gstack"
+$GSTACK_CONFIG_FILE = Join-Path $GSTACK_STATE_DIR "config.yaml"
+
+function Get-GstackConfig {
+    param([string]$Key)
+    if (-not (Test-Path $GSTACK_CONFIG_FILE)) { return $null }
+    $match = Select-String -Path $GSTACK_CONFIG_FILE -Pattern "^${Key}:\s*(.+)$" -ErrorAction SilentlyContinue | Select-Object -Last 1
+    if ($match) { return $match.Matches[0].Groups[1].Value.Trim() }
+    return $null
+}
+
+function Set-GstackConfig {
+    param([string]$Key, [string]$Value)
+    New-Item -ItemType Directory -Force -Path $GSTACK_STATE_DIR | Out-Null
+    if (-not (Test-Path $GSTACK_CONFIG_FILE)) {
+        "# gstack-kor configuration" | Out-File -FilePath $GSTACK_CONFIG_FILE -Encoding utf8
+    }
+    $content = Get-Content $GSTACK_CONFIG_FILE -ErrorAction SilentlyContinue
+    $found = $false
+    $newContent = $content | ForEach-Object {
+        if ($_ -match "^${Key}:") { "${Key}: ${Value}"; $found = $true } else { $_ }
+    }
+    if (-not $found) { $newContent = @($newContent) + "${Key}: ${Value}" }
+    $newContent | Set-Content $GSTACK_CONFIG_FILE
+}
+
 # ─── Parse flags ──────────────────────────────────────────────
 $TargetHost = "claude"
 $LOCAL_INSTALL = $false
@@ -70,12 +97,8 @@ if ($TargetHost -notin $validHosts) {
 }
 
 # ─── Resolve skill prefix preference ─────────────────────────
-$GSTACK_CONFIG = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-config"
-$env:GSTACK_SETUP_RUNNING = "1"
-
 if (-not $SKILL_PREFIX_FLAG) {
-    $savedPrefix = $null
-    try { $savedPrefix = & bun run $GSTACK_CONFIG get skill_prefix 2>$null } catch {}
+    $savedPrefix = Get-GstackConfig -Key "skill_prefix"
     if ($savedPrefix -eq "true") {
         $SKILL_PREFIX = $true
     } elseif ($savedPrefix -eq "false") {
@@ -100,11 +123,11 @@ if (-not $SKILL_PREFIX_FLAG) {
             $SKILL_PREFIX = $false
         }
         $prefixVal = if ($SKILL_PREFIX) { "true" } else { "false" }
-        try { & bun run $GSTACK_CONFIG set skill_prefix $prefixVal 2>$null } catch {}
+        Set-GstackConfig -Key "skill_prefix" -Value $prefixVal
     }
 } else {
     $prefixVal = if ($SKILL_PREFIX) { "true" } else { "false" }
-    try { & bun run $GSTACK_CONFIG set skill_prefix $prefixVal 2>$null } catch {}
+    Set-GstackConfig -Key "skill_prefix" -Value $prefixVal
 }
 
 # --local (deprecated)
@@ -305,6 +328,42 @@ function Link-ClaudeSkillDirs {
     }
 }
 
+# ─── Helper: patch SKILL.md name: fields for prefix mode ──────
+# PowerShell port of bin/gstack-patch-names
+function Invoke-PatchNames {
+    param([string]$GstackDir, [bool]$DoPrefix)
+    $patched = 0
+    $skillDirs = Get-ChildItem -Path $GstackDir -Directory -ErrorAction SilentlyContinue
+    foreach ($dir in $skillDirs) {
+        $skillMd = Join-Path $dir.FullName "SKILL.md"
+        if (-not (Test-Path $skillMd)) { continue }
+        if ($dir.Name -eq "node_modules") { continue }
+
+        # Read current name from frontmatter
+        $nameMatch = Select-String -Path $skillMd -Pattern '^name:\s*(.+)$' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $nameMatch) { continue }
+        $cur = $nameMatch.Matches[0].Groups[1].Value.Trim()
+        if (-not $cur -or $cur -eq "gstack") { continue }
+
+        if ($DoPrefix) {
+            if ($cur -match '^gstack-') { continue }
+            $newName = "gstack-$cur"
+        } else {
+            if ($cur -notmatch '^gstack-') { continue }
+            if ($dir.Name -eq $cur) { continue }  # inherently prefixed (gstack-upgrade)
+            $newName = $cur -replace '^gstack-', ''
+        }
+
+        $content = Get-Content $skillMd -Raw
+        $content = $content -replace "(?m)^name:\s*$([regex]::Escape($cur))", "name: $newName"
+        $content | Set-Content $skillMd -NoNewline
+        $patched++
+    }
+    if ($patched -gt 0) {
+        Write-Host "  patched name: field in $patched skills"
+    }
+}
+
 # ─── Helper: cleanup old Claude symlinks ──────────────────────
 function Remove-OldClaudeSymlinks {
     param([string]$GstackDir, [string]$SkillsDir, [switch]$Prefixed)
@@ -429,19 +488,12 @@ if ($INSTALL_CLAUDE) {
             Remove-OldClaudeSymlinks -GstackDir $SOURCE_GSTACK_DIR -SkillsDir $INSTALL_SKILLS_DIR -Prefixed
         }
         # Patch name fields
-        $patchNames = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-patch-names"
-        $prefixArg = if ($SKILL_PREFIX) { "1" } else { "0" }
-        & bun run $patchNames $SOURCE_GSTACK_DIR $prefixArg 2>$null
+        Invoke-PatchNames -GstackDir $SOURCE_GSTACK_DIR -DoPrefix $SKILL_PREFIX
 
         Link-ClaudeSkillDirs -GstackDir $SOURCE_GSTACK_DIR -SkillsDir $INSTALL_SKILLS_DIR
 
-        # Self-healing relink
-        $relink = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-relink"
-        if (Test-Path $relink) {
-            $env:GSTACK_SKILLS_DIR = $INSTALL_SKILLS_DIR
-            $env:GSTACK_INSTALL_DIR = $SOURCE_GSTACK_DIR
-            try { & bun run $relink 2>$null } catch {}
-        }
+        # Self-healing relink (inline — gstack-relink is bash)
+        # Link-ClaudeSkillDirs + Invoke-PatchNames already handle this
 
         if ($LOCAL_INSTALL) {
             Log-Message "gstack ready (project-local)."
@@ -466,18 +518,12 @@ if ($INSTALL_CLAUDE) {
             Remove-OldClaudeSymlinks -GstackDir $SOURCE_GSTACK_DIR -SkillsDir $INSTALL_SKILLS_DIR -Prefixed
         }
 
-        $patchNames = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-patch-names"
-        $prefixArg = if ($SKILL_PREFIX) { "1" } else { "0" }
-        & bun run $patchNames $SOURCE_GSTACK_DIR $prefixArg 2>$null
+        Invoke-PatchNames -GstackDir $SOURCE_GSTACK_DIR -DoPrefix $SKILL_PREFIX
 
         Link-ClaudeSkillDirs -GstackDir $SOURCE_GSTACK_DIR -SkillsDir $INSTALL_SKILLS_DIR
 
-        $relink = Join-Path $SOURCE_GSTACK_DIR "bin\gstack-relink"
-        if (Test-Path $relink) {
-            $env:GSTACK_SKILLS_DIR = $INSTALL_SKILLS_DIR
-            $env:GSTACK_INSTALL_DIR = $SOURCE_GSTACK_DIR
-            try { & bun run $relink 2>$null } catch {}
-        }
+        # Self-healing relink (inline — gstack-relink is bash)
+        # Link-ClaudeSkillDirs + Invoke-PatchNames already handle this
 
         Log-Message "gstack ready (claude)."
         Log-Message "  browse: $BROWSE_BIN"
